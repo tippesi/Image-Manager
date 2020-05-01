@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 import re
 import tkinter.filedialog
 import tkinter.simpledialog
@@ -8,10 +9,17 @@ import random
 import math
 import PIL.Image as PILImage
 import PIL.ImageTk as PILImageTk
+from PIL.ExifTags import TAGS
 
 class Image():
     def __init__(self, filename):
         image = PILImage.open(filename)
+
+        self.exif_data = image._getexif()
+
+
+        #for (k,v) in image._getexif().items():
+           # print(str(k) + " = " + str(v))
 
         self.filename = filename
 
@@ -22,6 +30,36 @@ class Image():
         img.thumbnail((128, 128))
 
         self.thumbnail = PILImageTk.PhotoImage(img)
+
+class ProgressBar(tk.Toplevel):
+    def __init__(self, parent, title=None):
+        super().__init__(parent)
+
+        self.body(parent)
+        self.transient(parent)
+
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.title(title)
+
+    def body(self, master):
+        self.label = tk.Label(self, text="Importing files")
+        self.label.grid(row=0, column=0)
+        self.progress = tk.ttk.Progressbar(self, orient="horizontal",
+            mode="determinate", length=200)
+        self.progress.grid(row=1, column=0)
+
+        self.set_maximum(100)
+        self.update(0)
+
+        self.update_idletasks()
+
+    def set_maximum(self, maximum):
+        self.progress["maximum"] = maximum
+
+    def update(self, progress, text="Importing files"):
+        self.label["text"] = text
+        self.progress["value"] = progress
+        self.progress.update()
 
 class Application(tk.Frame):
     def __init__(self, master=None):
@@ -70,9 +108,29 @@ class Application(tk.Frame):
         if filenames == None:
             return
 
+        errors = []
+
+        progress = ProgressBar(self, title="Importing files")
+
+        count = 0
+
         for filename in filenames:
             if self.is_image(filename):
-                self.images.append(Image(filename))
+                try:
+                    img = Image(filename)
+                    self.images.append(img)
+                except:
+                    errors.append(filename)                   
+
+                count += 1
+                progress.update(count, "Importing file " + str(count)
+                    + " of " + str(len(filenames)))
+
+        progress.destroy()
+
+        if len(errors):
+            tk.messagebox.showerror("Error loading", str(len(errors)) +
+                " items failed to load")
 
         self.update_imagegrid(5, 9)
         self.update_infolabel()
@@ -83,20 +141,37 @@ class Application(tk.Frame):
         if folder == None:
             return
 
+        progress = ProgressBar(self, title="Importing files")
+
+        count = 0
+
         files = []
         for (dirpath, _, filenames) in os.walk(folder):
             for filename in filenames:
-                files.append(os.path.join(dirpath, filename))
+                if self.is_image(filename):
+                    files.append(os.path.join(dirpath, filename))
+                    count += 1
+                    progress.update(0, "Found " + str(count) + " files")
+
 
         errors = []
 
-        for filename in files:
-            if self.is_image(filename):
-                try:
-                    img = Image(filename)
-                    self.images.append(img)
-                except:
-                    errors.append(filename)
+        progress.set_maximum(len(files))
+
+        count = 0
+
+        for filename in files:            
+            try:
+                img = Image(filename)
+                self.images.append(img)
+            except:
+                errors.append(filename)
+
+            count += 1
+            progress.update(count, "Importing file " + str(count)
+                + " of " + str(len(files)))
+
+        progress.destroy()
 
         if len(errors):
             tk.messagebox.showerror("Error loading", str(len(errors)) +
@@ -155,7 +230,7 @@ class Application(tk.Frame):
         self.imagegrid_canvas.configure(yscrollcommand=self.imagegrid_vsb.set)
 
         # Create a frame to contain the buttons
-        self.imagegrid_frame_buttons = tk.Frame(self.imagegrid_canvas, bg="blue")
+        self.imagegrid_frame_buttons = tk.Frame(self.imagegrid_canvas)
         self.imagegrid_canvas.create_window((0, 0), window=self.imagegrid_frame_buttons, anchor='nw')
 
         totalLabels = len(self.images)
@@ -171,12 +246,12 @@ class Application(tk.Frame):
             except:
                 self.imagegrid_labels[i] = tk.Label(self.imagegrid_frame_buttons, 
                     text="Error")
-            self.imagegrid_labels[i].grid(row=row, column=column, sticky='news')
+            self.imagegrid_labels[i].grid(row=row, column=column, sticky='news', padx=2, pady=2)
 
         # Update buttons frames idle tasks to let tkinter calculate buttons sizes
         self.imagegrid_frame_buttons.update_idletasks()
 
-        padding = 5
+        padding = 4
         width = (128 + padding) * columns
         height = (128 + padding) * rows
 
